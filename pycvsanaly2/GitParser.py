@@ -82,11 +82,13 @@ class GitParser(Parser):
     patterns['stash'] = re.compile("refs/stash")
     patterns['ignore'] = [re.compile("^Merge: .*$")]
     patterns['svn-tag'] = re.compile("^svn path=/tags/(.*)/?; revision=([0-9]+)$")
+    patterns['wordpress-author'] = re.compile('props\s+?(to|:)?\s*?([^,.;/ \n]+)')
 
     def __init__(self):
         Parser.__init__(self)
 
         self.is_gnome = None
+        self.is_wordpress = None
 
         # Parser context
         self.commit = None
@@ -96,6 +98,7 @@ class GitParser(Parser):
     def set_repository(self, repo, uri):
         Parser.set_repository(self, repo, uri)
         self.is_gnome = re.search("^[a-z]+://(.*@)?git\.gnome\.org/.*$", repo.get_uri()) is not None
+        self.is_wordpress = re.search("^[a-z]+://(.*@)?develop\.git\.wordpress\.org/.*$", repo.get_uri()) is not None
 
     def flush(self):
         if self.branches:
@@ -232,14 +235,22 @@ class GitParser(Parser):
             self.handler.committer(self.commit.committer)
             return
 
+        wordpress_author = None
+
+        if self.is_wordpress:
+            match = self.patterns['wordpress-author'].match(line.strip().lower())
+            if match:
+                wordpress_author = match.group(2)
+                
         # Author
-        match = self.patterns['author'].match(line)
-        if match:
-            self.commit.author = Person()
-            self.commit.author.name = match.group(1)
-            self.commit.author.email = match.group(2)
-            self.handler.author(self.commit.author)
+        if wordpress_author:
+            self.set_author(wordpress_author, '')
             return
+        else:
+            match = self.patterns['author'].match(line)
+            if match:
+                self.set_author(match.group(1), match.group(2))
+                return
 
         # Commit date
         match = self.patterns['date'].match(line)
@@ -323,3 +334,10 @@ class GitParser(Parser):
         self.commit.message += line + '\n'
 
         assert True, "Not match for line %s" % (line)
+        
+    def set_author(self, name, email):
+        self.commit.author = Person()
+        self.commit.author.name = name
+        self.commit.author.email = email
+        self.handler.author(self.commit.author)
+        
