@@ -4,3 +4,8 @@
 MANIFEST
 dist/
 config
+.project
+.pydevproject
+.settings/
+build/
+cvsanaly2.egg-info/
