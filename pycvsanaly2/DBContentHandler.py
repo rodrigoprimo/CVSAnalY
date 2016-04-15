@@ -185,7 +185,7 @@ class DBContentHandler(ContentHandler):
                             (dbfilecopy.id, dbfilecopy.to_id, dbfilecopy.from_id,
                              dbfilecopy.from_commit, dbfilecopy.new_file_name, dbfilecopy.action_id))
 
-    def __get_person(self, person):
+    def get_person(self, person):
         """Get the person_id given a person struct
            First, it tries to get it from cache and then from the database.
            When a new person_id is gotten from the database, the cache must be
@@ -581,12 +581,12 @@ class DBContentHandler(ContentHandler):
         log.repository_id = self.repo_id
         self.revision_cache[commit.revision] = log.id
 
-        log.committer = self.__get_person(commit.committer)
+        log.committer = self.get_person(commit.committer)
 
         if commit.author == commit.committer:
             log.author = log.committer
         elif commit.author is not None:
-            log.author = self.__get_person(commit.author)
+            log.author = self.get_person(commit.author)
 
         self.commits.append(log)
 
