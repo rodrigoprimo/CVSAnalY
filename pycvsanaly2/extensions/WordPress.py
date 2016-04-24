@@ -18,6 +18,7 @@
 #       Rodrigo Primo <rodrigosprimo@gmail.com>
 
 import re
+import unittest
 
 from pycvsanaly2.Database import (MysqlDatabase, statement, DatabaseException)
 from pycvsanaly2.extensions import Extension, register_extension
@@ -40,7 +41,7 @@ class WordPress(Extension):
     """
     
     # The regular expression used to extract WordPress contributors from the commit message.
-    wordpress_author_pattern = re.compile('.*?props\s+?(to |: )?\s*?([^,.;/ \n]+)')
+    wordpress_author_pattern = re.compile('.*?props\s+?(to |: )?\s*?([^,;/ \n]+)')
     
     def __init__(self):
         self.db = None
@@ -64,27 +65,37 @@ class WordPress(Extension):
         cnn.commit()
         cursor.close()
 
-    def __get_author_from_message(self, message):
+    def __get_person_id_from_message(self, message):
         person_id = None
         
-        # some commit messages add @ before the user name so we use a regular expression to remove it
-        clean_name_regex = re.compile('^@')
+        author_name = self.get_author_from_message(message)
+        
+        if author_name:
+            wordpress_author = Person()
+            wordpress_author.name = author_name
+            person_id = self.db_content_handler.get_person(wordpress_author)
+            
+        return person_id
+        
+    def get_author_from_message(self, message):
+        author = None
+        
+        # some commit messages add @ before the user name or a . after it so we use a regular expression to remove it
+        clean_name_regex = re.compile('^@|\.$')
         
         # a list of strings that are wrongly identified as authors due to errors in the commit message
         # or other uses of the word props inside the commit message and thus need to be manually ignored
         invalid_authors = ['`public`', '`grunt', 'the', ')`', '*', '`']
         
-        match = self.wordpress_author_pattern.match(message.replace('\n', '').replace(')', '').strip().lower())
+        match = self.wordpress_author_pattern.match(message.replace('\n', ' ').replace(')', '').strip().lower())
 
         if match:
-            name = clean_name_regex.sub('', match.group(2))
+            name = clean_name_regex.sub('', match.group(2).strip())
             
             if name not in invalid_authors:
-                wordpress_author = Person()
-                wordpress_author.name = name
-                person_id = self.db_content_handler.get_person(wordpress_author)
+                author = name
             
-        return person_id
+        return author
 
     def run(self, repo, uri, db):
         """
@@ -119,7 +130,7 @@ class WordPress(Extension):
         
         while rs:
             for scmlog_id, message in rs:
-                person_id = self.__get_author_from_message(message)
+                person_id = self.__get_person_id_from_message(message)
                 
                 if person_id:
                     write_cursor.execute(statement("UPDATE scmlog SET wordpress_author_id = ? WHERE id = ?", db.place_holder), (person_id, scmlog_id))
@@ -133,3 +144,33 @@ class WordPress(Extension):
 
 
 register_extension("WordPress", WordPress)
+
+class TestWordPress(unittest.TestCase):
+
+    def setUp(self):
+        self.wordpress = WordPress()
+        
+    def test_get_author_from_message(self):
+        data_provider = (
+            ('asdf', None),
+            ('props user', 'user'),
+            ('Textile checkin. Props to Jaykul for prodding me into this.\n\n', 'jaykul'),
+            ('Remove unnecessary call to generic_ping().  The publish_post action will take care of it.  Props to hades.  http://wordpress.org/support/4/6876\n\n', 'hades'),
+            ('Docs: Clarify parameter and return descriptions in the DocBlock for `wp_set_all_user_settings()`.\n\nSee [32613]. See #30989.\n\nBuilt from https://develop.svn.wordpress.org/trunk@37263\n\n', None),
+            ('Tests: Allow override of `MULTISITE` and `SUBDOMAIN_INSTALL` constants\n\nProps rmccue.\nFixes #36567.\n\nBuilt from https://develop.svn.wordpress.org/trunk@37266\n\n', 'rmccue'),
+            ('Tests: Pre-declare the `$year_url` property before initialization in `Tests_Get_Archives::setUp()`.\n\nProps pbearne.\nFixes #36611.\n\nBuilt from https://develop.svn.wordpress.org/trunk@37271\n\n', 'pbearne'),
+            ('Rewrite Rules: After [36953], correctly replace existing rules on IIS when updating them.\n\nProps WiZZarD_.\nFixes #36506 for trunk.\nBuilt from https://develop.svn.wordpress.org/trunk@37273\n\n', 'wizzard_'),
+            ("Use `px` instead of `in` in device preview\n\nDevices are not consistent in how they handle `in` units. `in` was an attempt to cleverly disguise the exact size of the 'tablet'. The PHP code standards mentions avoiding clever code ( https://make.wordpress.org/core/handbook/best-practices/coding-standards/php/#clever-code ) but we should extend that idea to the css code as well.\n\nProps celloexpressions\nFixes #36457\n\n\nBuilt from https://develop.svn.wordpress.org/trunk@37247\n\n", 'celloexpressions'),
+            ("Access Modifiers:\n\n* In `WP_Plugin_Install_List_Table`, use `public` instead of `var`\n\n* In `WP_User`, `->data` is accessed directly on an instance if the constructor receives it: make it `public`\n\n* In `WP_Locale`, every property is exported to a global and is already `public` via `var`, half of the properties are accessed directly already, make them all `public`\n\n* In `WP_Rewrite`, several properties are accessed publicly in functions via the `$wp_rewrite` global, make those props `public`.\n\n* In `WP_Rewrite`, the property `->comment_feed_structure` was misspelled as `->comments_feed_structure`\n\nSee #30799.\n\nBuilt from https://develop.svn.wordpress.org/trunk@31078", None),
+            ('Canonical redirects should only be applied for GET requests.\n\nprops c.axelsson.\n\nfixes #27498.\n\nBuilt from https://develop.svn.wordpress.org/trunk@28958', 'c.axelsson'),
+            ('Twenty Fifteen: add support for site logos\n\nFixes #35944\n\nProps @iamtakashi, @celloexpressions, @drebbits.web\n\nBuilt from https://develop.svn.wordpress.org/trunk@36913', 'iamtakashi'),
+            ("The `'get_sample_permalink_html'` filter{U+200B}'s second parameter can be a post ID or a post object. This is confusing. We should pass the post ID and post object separately, for consistency with `'get_sample_permalink'` filter added in [34309].\n\nProps SergeyBiryukov.\t\n\nFixes #33927.\n\nBuilt from https://develop.svn.wordpress.org/trunk@34347", 'sergeybiryukov')
+        )
+        
+        for message, author in data_provider:
+            self.assertEqual(self.wordpress.get_author_from_message(message), author)
+
+if __name__ == '__main__':
+    unittest.main()
+    
+
