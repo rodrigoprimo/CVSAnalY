@@ -201,8 +201,14 @@ class DBContentHandler(ContentHandler):
 
             name = to_utf8(person.name)
             email = person.email
-            cursor.execute(statement("SELECT id from people where name = ? and email = ?",
+            
+            if not email:
+                cursor.execute(statement("SELECT id from people where name = ? and email IS NULL",
+                                     self.db.place_holder), (name,))
+            else:
+                cursor.execute(statement("SELECT id from people where name = ? and email = ?",
                                      self.db.place_holder), (name, email))
+            
             rs = cursor.fetchone()
             if not rs:
                 p = DBPerson(None, person)
